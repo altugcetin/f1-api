@@ -1,0 +1,16 @@
+---
+description: No source comments anywhere in the codebase (KURAL-1)
+alwaysApply: true
+---
+
+# No comments
+
+Never write comments in source or config that CI would treat as code:
+
+- No `//`, `/* */`, `///`, or `//!` in `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`
+- No `--` SQL comments or `/* */` in `.sql`
+- No `/* */` in `.css`
+
+If something needs explaining, use clear names and/or a `docs/**/*.md` file.
+
+Do not add comment-only commits or "explain in comments" refactors. Prefer renaming and markdown docs.

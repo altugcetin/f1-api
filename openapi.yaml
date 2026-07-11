@@ -1,0 +1,70 @@
+openapi: "3.1.0"
+info:
+  title: f1.alchm.ist Public API
+  version: "2.0.0"
+  description: |
+    Non-commercial public REST and realtime API for timing and telemetry facts.
+    f1.alchm.ist is an unofficial project and is not associated in any way with Formula 1 companies.
+    F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD CHAMPIONSHIP, GRAND PRIX and related marks
+    are trademarks of Formula One Licensing B.V.
+  license:
+    name: MIT
+servers:
+  - url: https://api.f1.alchm.ist
+paths:
+  /v1/status:
+    get:
+      summary: Service status
+      description: "Data class: operational metadata. No auth required."
+      operationId: getStatus
+      responses:
+        "200":
+          description: Status payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+  /health:
+    get:
+      summary: Liveness probe
+      operationId: getHealth
+      responses:
+        "200":
+          description: Process is up
+components:
+  schemas:
+    StatusResponse:
+      type: object
+      required:
+        - live_redistribution_enabled
+        - api_version
+      properties:
+        active_session_key:
+          type: ["integer", "null"]
+          format: int64
+        feed_latency_ms:
+          type: ["integer", "null"]
+          format: int64
+        live_redistribution_enabled:
+          type: boolean
+        api_version:
+          type: string
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - rate_limited
+                - invalid_param
+                - not_found
+                - range_too_wide
+                - unauthorized
+                - live_disabled
+            message:
+              type: string
