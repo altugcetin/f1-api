@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use crate::circuits::geometry_for_circuit;
+use crate::openf1;
 use crate::response_cache;
 use crate::state::AppState;
 use std::time::Duration;
@@ -16,6 +17,12 @@ use std::time::Duration;
 pub struct ArchiveQuery {
     pub until: Option<String>,
     pub year: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LiveQuery {
+    pub session_key: Option<i64>,
+    pub limit: Option<usize>,
 }
 
 async fn empty_list() -> Json<Value> {
@@ -32,6 +39,34 @@ async fn not_found() -> (StatusCode, Json<Value>) {
             }
         })),
     )
+}
+
+async fn live_meetings(Query(query): Query<LiveQuery>) -> Json<Value> {
+    Json(openf1::meetings(query.limit.unwrap_or(12)).await)
+}
+
+async fn live_sessions(Query(query): Query<LiveQuery>) -> Json<Value> {
+    Json(openf1::sessions(query.limit.unwrap_or(16)).await)
+}
+
+async fn live_drivers(Query(query): Query<LiveQuery>) -> Json<Value> {
+    Json(openf1::drivers(query.session_key).await)
+}
+
+async fn live_position(Query(query): Query<LiveQuery>) -> Json<Value> {
+    Json(openf1::position(query.session_key).await)
+}
+
+async fn live_intervals(Query(query): Query<LiveQuery>) -> Json<Value> {
+    Json(openf1::intervals(query.session_key).await)
+}
+
+async fn live_weather(Query(query): Query<LiveQuery>) -> Json<Value> {
+    Json(openf1::weather(query.session_key, query.limit.unwrap_or(1)).await)
+}
+
+async fn live_race_control(Query(query): Query<LiveQuery>) -> Json<Value> {
+    Json(openf1::race_control(query.session_key, query.limit.unwrap_or(20)).await)
 }
 
 fn session_datetime(block: Option<&Value>) -> (Option<String>, Option<String>) {
@@ -906,18 +941,18 @@ async fn schedule_next() -> Result<Json<Value>, StatusCode> {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/meetings", get(empty_list))
-        .route("/sessions", get(empty_list))
-        .route("/drivers", get(empty_list))
+        .route("/meetings", get(live_meetings))
+        .route("/sessions", get(live_sessions))
+        .route("/drivers", get(live_drivers))
         .route("/laps", get(empty_list))
         .route("/stints", get(empty_list))
         .route("/pit", get(empty_list))
-        .route("/intervals", get(empty_list))
-        .route("/position", get(empty_list))
+        .route("/intervals", get(live_intervals))
+        .route("/position", get(live_position))
         .route("/location", get(not_found))
         .route("/car_data", get(not_found))
-        .route("/race_control", get(empty_list))
-        .route("/weather", get(empty_list))
+        .route("/race_control", get(live_race_control))
+        .route("/weather", get(live_weather))
         .route("/team_radio", get(empty_list))
         .route("/results", get(empty_list))
         .route("/standings/drivers", get(standings_drivers))
