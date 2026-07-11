@@ -3,3 +3,4 @@
 .env.local
 *.ndjson
 .DS_Store
+.cursor/
