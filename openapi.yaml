@@ -1,29 +1,17 @@
 openapi: "3.1.0"
 info:
-  title: f1.alchm.ist Public API
-  version: "2.0.0"
+  title: alchm.ist Motorsport Data API
+  version: "3.0.0"
   description: |
-    Non-commercial public REST and realtime API for timing and telemetry facts.
-    f1.alchm.ist is an unofficial project and is not associated in any way with Formula 1 companies.
-    F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD CHAMPIONSHIP, GRAND PRIX and related marks
-    are trademarks of Formula One Licensing B.V.
+    Non-commercial public REST API for motorsport timing and result facts across multiple series.
+    Canonical host: https://api.alchm.ist (when live). Compatibility host: https://api.f1.alchm.ist.
+    Unofficial and unaffiliated with Formula 1 companies or other series rights holders.
   license:
     name: MIT
 servers:
+  - url: https://api.alchm.ist
   - url: https://api.f1.alchm.ist
 paths:
-  /v1/status:
-    get:
-      summary: Service status
-      description: "Data class: operational metadata. No auth required."
-      operationId: getStatus
-      responses:
-        "200":
-          description: Status payload
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StatusResponse"
   /health:
     get:
       summary: Liveness probe
@@ -31,24 +19,130 @@ paths:
       responses:
         "200":
           description: Process is up
+  /v1/status:
+    get:
+      summary: Service status plus series rows
+      operationId: getStatus
+      responses:
+        "200":
+          description: Status payload
+  /v1/series:
+    get:
+      summary: Public series registry
+      description: |
+        Circuit, rally, and endurance series with coverage (full|live|results-only),
+        enabled endpoints, and disclaimer keys. Discipline: circuit|rally|endurance.
+      operationId: listSeries
+      responses:
+        "200":
+          description: Series list
+  /v1/{series}/events:
+    get:
+      summary: Events for a series
+      description: "Data class: schedule facts. Valid for circuit, rally, endurance."
+      operationId: seriesEvents
+      parameters:
+        - $ref: "#/components/parameters/SeriesKey"
+      responses:
+        "200":
+          description: Event list
+        "403":
+          description: Policy denial
+        "404":
+          description: Unknown series
+  /v1/{series}/sessions:
+    get:
+      summary: Sessions for a series
+      description: "Data class: schedule facts."
+      operationId: seriesSessions
+      parameters:
+        - $ref: "#/components/parameters/SeriesKey"
+      responses:
+        "200":
+          description: Session list
+        "403":
+          description: Policy denial
+  /v1/{series}/results:
+    get:
+      summary: Results or classification
+      description: "Data class: classification facts. For results-only series this is the primary surface."
+      operationId: seriesResults
+      parameters:
+        - $ref: "#/components/parameters/SeriesKey"
+      responses:
+        "200":
+          description: Results payload
+        "403":
+          description: Policy denial
+  /v1/{series}/standings:
+    get:
+      summary: Championship standings
+      description: "Data class: standings facts."
+      operationId: seriesStandings
+      parameters:
+        - $ref: "#/components/parameters/SeriesKey"
+      responses:
+        "200":
+          description: Standings payload
+  /v1/{series}/position:
+    get:
+      summary: Live positions
+      description: "Data class: live timing. Circuit series with live_enabled only."
+      operationId: seriesPosition
+      parameters:
+        - $ref: "#/components/parameters/SeriesKey"
+      responses:
+        "200":
+          description: Position rows
+        "403":
+          description: live_disabled_for_series or endpoint_disabled_for_series
+  /v1/{series}/itinerary:
+    get:
+      summary: Rally itinerary
+      description: "Data class: rally schedule. Rally discipline only."
+      operationId: seriesItinerary
+      parameters:
+        - $ref: "#/components/parameters/SeriesKey"
+        - name: event_key
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Itinerary payload
+  /v1/{series}/overall:
+    get:
+      summary: Rally overall classification
+      description: "Data class: rally overall times."
+      operationId: seriesOverall
+      parameters:
+        - $ref: "#/components/parameters/SeriesKey"
+        - name: event_key
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Overall rows
+  /v1/position:
+    get:
+      summary: Formula 1 live positions (legacy alias)
+      deprecated: true
+      description: Prefer /v1/f1/position. Alias retained for at least 12 months.
+      operationId: legacyPosition
+      responses:
+        "200":
+          description: Position rows
 components:
+  parameters:
+    SeriesKey:
+      name: series
+      in: path
+      required: true
+      schema:
+        type: string
+        examples: [f1, motogp, wrc, formula-e, wec]
   schemas:
-    StatusResponse:
-      type: object
-      required:
-        - live_redistribution_enabled
-        - api_version
-      properties:
-        active_session_key:
-          type: ["integer", "null"]
-          format: int64
-        feed_latency_ms:
-          type: ["integer", "null"]
-          format: int64
-        live_redistribution_enabled:
-          type: boolean
-        api_version:
-          type: string
     ApiError:
       type: object
       required: [error]
@@ -66,5 +160,9 @@ components:
                 - range_too_wide
                 - unauthorized
                 - live_disabled
+                - series_disabled
+                - endpoint_disabled_for_series
+                - live_disabled_for_series
+                - series_not_found
             message:
               type: string

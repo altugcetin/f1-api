@@ -71,6 +71,7 @@ impl SeriesRecord {
             "free_delay_seconds": self.free_delay_seconds,
             "enabled_endpoints": self.enabled_endpoints,
             "disclaimer_key": self.disclaimer_key,
+            "disclaimer": crate::disclaimers::text_for(&self.disclaimer_key),
             "status": self.status,
         })
     }

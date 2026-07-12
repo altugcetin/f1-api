@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query};
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode};
+use axum::middleware::{from_fn, Next};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::Datelike;
@@ -11,6 +12,9 @@ use crate::circuits::geometry_for_circuit;
 use crate::openf1;
 use crate::response_cache;
 use crate::state::AppState;
+use axum::body::Body;
+use axum::http::Request;
+use axum::response::Response;
 use std::time::Duration;
 
 #[derive(Debug, Deserialize)]
@@ -943,6 +947,18 @@ async fn schedule_next() -> Result<Json<Value>, StatusCode> {
     Ok(Json(payload))
 }
 
+async fn legacy_deprecation(request: Request<Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    if let Ok(value) = HeaderValue::from_str("true") {
+        headers.insert("Deprecation", value);
+    }
+    if let Ok(value) = HeaderValue::from_str("</v1/f1/{resource}>; rel=\"successor-version\"") {
+        headers.insert(axum::http::header::LINK, value);
+    }
+    response
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/meetings", get(live_meetings))
@@ -965,4 +981,5 @@ pub fn router() -> Router<AppState> {
         .route("/schedule/next", get(schedule_next))
         .route("/archive/races", get(archive_races))
         .route("/archive/races/{session_key}", get(archive_race_detail))
+        .layer(from_fn(legacy_deprecation))
 }

@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use crate::openf1;
 use crate::policy::{self, is_live_endpoint};
-use crate::providers::{formula_e, motogp, wrc};
+use crate::providers::{formula_e, motogp, results_facts, wrc};
 use crate::routes::stub;
 use crate::series::LegalTier;
 use crate::state::AppState;
@@ -115,6 +115,9 @@ async fn dispatch(
     }
 
     if series.legal_tier == LegalTier::T3 {
+        if endpoint == "results" {
+            return Ok(Json(results_facts::for_series(&series.series_key)));
+        }
         return Ok(Json(json!({
             "series_key": series.series_key,
             "endpoint": endpoint,
