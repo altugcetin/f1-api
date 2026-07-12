@@ -10,7 +10,7 @@ const OPENF1_BASE: &str = "https://api.openf1.org/v1";
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(12))
-        .user_agent("f1.alchm.ist-api/0.1")
+        .user_agent(crate::providers::http::BOT_UA)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }
@@ -257,7 +257,7 @@ pub async fn position(session_key: Option<i64>) -> Value {
                     if row.get("position").and_then(|v| v.as_i64()) == Some(1) {
                         "LEADER".into()
                     } else {
-                        "—".into()
+                        "-".into()
                     }
                 });
             json!({

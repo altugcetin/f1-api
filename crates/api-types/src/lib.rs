@@ -29,6 +29,10 @@ pub enum ApiErrorCode {
     RangeTooWide,
     Unauthorized,
     LiveDisabled,
+    SeriesDisabled,
+    EndpointDisabledForSeries,
+    LiveDisabledForSeries,
+    SeriesNotFound,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,4 +1,5 @@
 mod health;
+mod series_api;
 mod status;
 mod stub;
 
@@ -9,5 +10,7 @@ use crate::state::AppState;
 use axum::Router;
 
 pub fn v1_router() -> Router<AppState> {
-    Router::new().merge(stub::router())
+    Router::new()
+        .merge(series_api::router())
+        .merge(stub::router())
 }

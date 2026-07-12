@@ -698,6 +698,10 @@ fn map_constructor_standings(raw: Option<&Value>) -> Vec<Value> {
 }
 
 async fn standings_drivers() -> Result<Json<Value>, StatusCode> {
+    standings_drivers_json().await
+}
+
+pub async fn standings_drivers_json() -> Result<Json<Value>, StatusCode> {
     let cache_key = "standings:drivers:current".to_string();
     if let Some(cached) = response_cache::get(&cache_key, Duration::from_secs(30 * 60)) {
         return Ok(Json(cached));

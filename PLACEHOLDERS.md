@@ -1,6 +1,7 @@
 # Production values required before a production build.
 
 PLACEHOLDER_BMAC_URL=
+PLACEHOLDER_LEGAL_EMAIL=legal@alchm.ist
 DATABASE_URL=
 REDIS_URL=
 LIVE_REDISTRIBUTION_ENABLED=true
