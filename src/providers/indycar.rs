@@ -418,3 +418,147 @@ pub async fn entries() -> Value {
         .collect();
     Value::Array(rows)
 }
+
+async fn events_for_page(page: &str) -> Vec<Value> {
+    let url = format!(
+        "https://en.wikipedia.org/w/api.php?action=parse&page={page}&prop=sections&format=json"
+    );
+    let sections = get_json(&format!("indycar:sections:{page}"), Duration::from_secs(6 * 3600), &url).await;
+    let section = sections
+        .pointer("/parse/sections")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .find(|row| {
+            row.get("line")
+                .and_then(|v| v.as_str())
+                .map(|line| line.eq_ignore_ascii_case("Schedule"))
+                .unwrap_or(false)
+        })
+        .and_then(|row| row.get("index").and_then(|v| v.as_str()))
+        .unwrap_or("10");
+    let wiki_url = format!(
+        "https://en.wikipedia.org/w/api.php?action=parse&page={page}&prop=wikitext&section={section}&format=json"
+    );
+    let body = get_json(
+        &format!("indycar:schedule:{page}:{section}"),
+        Duration::from_secs(6 * 3600),
+        &wiki_url,
+    )
+    .await;
+    let wikitext = body
+        .pointer("/parse/wikitext/*")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let year = page
+        .get(0..4)
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(2026);
+    parse_schedule_wikitext(wikitext)
+        .into_iter()
+        .map(|mut row| {
+            if let Some(obj) = row.as_object_mut() {
+                if let Some(key) = obj.get("event_key").and_then(|v| v.as_str()).map(|s| s.to_string()) {
+                    // Normalize keys to include year when parsing older pages with rough_date_2026 helper.
+                    if key.starts_with("2026-") && year != 2026 {
+                        let suffix = key.trim_start_matches("2026");
+                        obj.insert("event_key".into(), json!(format!("{year}{suffix}")));
+                    }
+                }
+                if let Some(date) = obj.get("date_start").and_then(|v| v.as_str()).map(|s| s.to_string()) {
+                    if date.starts_with("2026-") && year != 2026 {
+                        obj.insert(
+                            "date_start".into(),
+                            json!(format!("{year}-{}", date.trim_start_matches("2026-"))),
+                        );
+                        obj.insert(
+                            "date_end".into(),
+                            json!(format!("{year}-{}", date.trim_start_matches("2026-"))),
+                        );
+                    }
+                }
+                obj.insert("season".into(), json!(year));
+            }
+            row
+        })
+        .collect()
+}
+
+pub async fn archive_races(until: &str) -> Value {
+    let years = crate::providers::archive_common::archive_years(until);
+    let mut out = Vec::new();
+    for year in years {
+        let page = format!("{year}_IndyCar_Series");
+        for row in events_for_page(&page).await {
+            let date = crate::providers::archive_common::date_only(
+                row.get("date_start").and_then(|v| v.as_str()),
+            );
+            if !crate::providers::archive_common::finished(&date, until) {
+                continue;
+            }
+            let event_key = row
+                .get("event_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if event_key.is_empty() {
+                continue;
+            }
+            out.push(crate::providers::archive_common::archive_race(
+                "indycar",
+                &event_key,
+                year,
+                row.get("round").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                row.get("name").and_then(|v| v.as_str()).unwrap_or("Race"),
+                &date,
+                row.get("circuit_name").and_then(|v| v.as_str()).unwrap_or(""),
+                row.get("locality").and_then(|v| v.as_str()).unwrap_or(""),
+                row.get("country").and_then(|v| v.as_str()).unwrap_or("USA"),
+                json!([{
+                    "session_key": event_key,
+                    "type": "RACE",
+                    "name": "Race",
+                    "date": date,
+                    "time": Value::Null,
+                    "has_replay": false
+                }]),
+            ));
+        }
+    }
+    out.sort_by(|a, b| {
+        let da = a.get("date").and_then(|v| v.as_str()).unwrap_or("");
+        let db = b.get("date").and_then(|v| v.as_str()).unwrap_or("");
+        db.cmp(da)
+    });
+    Value::Array(out)
+}
+
+pub async fn archive_detail(event_key: &str) -> Value {
+    let races = archive_races("2026-12-31").await;
+    let race = races
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row.get("session_key").and_then(|v| v.as_str()) == Some(event_key))
+        .cloned()
+        .unwrap_or_else(|| {
+            crate::providers::archive_common::archive_race(
+                "indycar",
+                event_key,
+                0,
+                0,
+                "Race",
+                "",
+                "",
+                "",
+                "USA",
+                json!([]),
+            )
+        });
+    crate::providers::archive_common::archive_detail(
+        race,
+        "Race",
+        Vec::new(),
+        &format!("wikipedia:indycar:archive:{event_key}"),
+    )
+}

@@ -17,6 +17,14 @@ pub struct LiveQuery {
     pub session_key: Option<i64>,
     pub event_key: Option<String>,
     pub limit: Option<usize>,
+    pub until: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ArchiveQuery {
+    pub until: Option<String>,
+    #[allow(dead_code)]
+    pub year: Option<i32>,
 }
 
 pub async fn list_series() -> Json<Value> {
@@ -83,11 +91,16 @@ async fn dispatch(
     }
 
     if series.series_key.starts_with("moto") {
+        let until = query
+            .until
+            .clone()
+            .unwrap_or_else(|| "2026-07-11".to_string());
         let value = match endpoint {
             "events" => motogp::events(&series.series_key).await,
             "sessions" => motogp::sessions(&series.series_key).await,
             "results" => motogp::results(&series.series_key).await,
             "standings" => motogp::standings(&series.series_key).await,
+            "archive" => motogp::archive_races(&series.series_key, &until).await,
             _ => json!([]),
         };
         return Ok(Json(value));
@@ -116,12 +129,17 @@ async fn dispatch(
 
     if series.series_key == "f2" || series.series_key == "f3" {
         let event_key = query.event_key.as_deref();
+        let until = query
+            .until
+            .clone()
+            .unwrap_or_else(|| "2026-07-11".to_string());
         let value = match endpoint {
             "events" => f2f3::events(&series.series_key).await,
             "sessions" => f2f3::sessions(&series.series_key).await,
             "standings" => f2f3::standings(&series.series_key).await,
             "results" => f2f3::results(&series.series_key, event_key).await,
             "entries" | "competitors" => f2f3::entries(&series.series_key).await,
+            "archive" => f2f3::archive_races(&series.series_key, &until).await,
             _ => json!([]),
         };
         return Ok(Json(value));
@@ -129,6 +147,10 @@ async fn dispatch(
 
     if series.series_key == "nascar-cup" {
         let event_key = query.event_key.as_deref();
+        let until = query
+            .until
+            .clone()
+            .unwrap_or_else(|| "2026-07-11".to_string());
         let value = match endpoint {
             "events" => nascar::events().await,
             "sessions" => nascar::sessions().await,
@@ -136,6 +158,7 @@ async fn dispatch(
             "results" => nascar::results(event_key).await,
             "position" => nascar::position().await,
             "entries" | "competitors" => nascar::entries().await,
+            "archive" => nascar::archive_races(&until).await,
             _ => json!([]),
         };
         return Ok(Json(value));
@@ -143,12 +166,17 @@ async fn dispatch(
 
     if series.series_key == "indycar" {
         let event_key = query.event_key.as_deref();
+        let until = query
+            .until
+            .clone()
+            .unwrap_or_else(|| "2026-07-11".to_string());
         let value = match endpoint {
             "events" => indycar::events().await,
             "sessions" => indycar::sessions().await,
             "standings" => indycar::standings().await,
             "results" => indycar::results(event_key).await,
             "entries" | "competitors" => indycar::entries().await,
+            "archive" => indycar::archive_races(&until).await,
             _ => json!([]),
         };
         return Ok(Json(value));
@@ -205,6 +233,67 @@ series_route!(overall, "overall");
 series_route!(penalties, "penalties");
 series_route!(retirements, "retirements");
 
+async fn archive_races(
+    State(state): State<AppState>,
+    Path(series): Path<String>,
+    Query(query): Query<ArchiveQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let until = query.until.unwrap_or_else(|| "2026-07-11".to_string());
+    dispatch(
+        &state,
+        &series,
+        "archive",
+        LiveQuery {
+            session_key: None,
+            event_key: None,
+            limit: None,
+            until: Some(until),
+        },
+    )
+    .await
+}
+
+async fn archive_race_detail(
+    State(_state): State<AppState>,
+    Path((series, event_key)): Path<(String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let series_row = policy::resolve_series(&series)?;
+    policy::enforce_endpoint(series_row, "archive")?;
+    let value = if series_row.series_key == "f1" {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": {
+                    "code": "not_found",
+                    "message": "use /v1/archive/races/{session_key} for Formula 1"
+                }
+            })),
+        ));
+    } else if series_row.series_key == "f2" || series_row.series_key == "f3" {
+        f2f3::archive_detail(&series_row.series_key, &event_key).await
+    } else if series_row.series_key == "nascar-cup" {
+        nascar::archive_detail(&event_key).await
+    } else if series_row.series_key == "indycar" {
+        indycar::archive_detail(&event_key).await
+    } else if series_row.series_key.starts_with("moto") {
+        motogp::archive_detail(&series_row.series_key, &event_key).await
+    } else {
+        json!({})
+    };
+    if value.as_object().map(|obj| obj.is_empty()).unwrap_or(false) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": {
+                    "code": "not_found",
+                    "message": "archive race not found"
+                }
+            })),
+        ));
+    }
+    Ok(Json(value))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/series", get(list_series))
@@ -215,6 +304,8 @@ pub fn router() -> Router<AppState> {
         .route("/{series}/results", get(results))
         .route("/{series}/standings", get(standings))
         .route("/{series}/standings/drivers", get(standings))
+        .route("/{series}/archive/races", get(archive_races))
+        .route("/{series}/archive/races/{event_key}", get(archive_race_detail))
         .route("/{series}/laps", get(laps))
         .route("/{series}/stints", get(stints))
         .route("/{series}/pit", get(pit))

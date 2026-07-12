@@ -92,6 +92,7 @@ fn circuit_live_endpoints() -> Vec<String> {
         "position".into(),
         "race_control".into(),
         "weather".into(),
+        "archive".into(),
     ]
 }
 
@@ -103,6 +104,7 @@ fn circuit_results_endpoints() -> Vec<String> {
         "competitors".into(),
         "results".into(),
         "standings".into(),
+        "archive".into(),
     ]
 }
 
@@ -114,6 +116,7 @@ fn endurance_results_endpoints() -> Vec<String> {
         "competitors".into(),
         "results".into(),
         "standings".into(),
+        "archive".into(),
     ]
 }
 
@@ -132,6 +135,7 @@ fn rally_endpoints() -> Vec<String> {
         "overall".into(),
         "penalties".into(),
         "retirements".into(),
+        "archive".into(),
     ]
 }
 

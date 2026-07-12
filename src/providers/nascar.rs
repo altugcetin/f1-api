@@ -301,3 +301,172 @@ pub async fn entries() -> Value {
         .collect();
     Value::Array(rows)
 }
+
+pub async fn archive_races(until: &str) -> Value {
+    let years = crate::providers::archive_common::archive_years(until);
+    let mut out = Vec::new();
+    for year in years {
+        let body = get_cached(
+            &format!("{CACHE_PREFIX}:schedule:{year}"),
+            Duration::from_secs(6 * 3600),
+            &format!("https://cf.nascar.com/cacher/{year}/{SERIES_ID}/schedule-feed.json"),
+        )
+        .await;
+        let mut by_race: BTreeMap<i64, Value> = BTreeMap::new();
+        for row in body.as_array().cloned().unwrap_or_default() {
+            let race_id = row.get("race_id").and_then(|v| v.as_i64()).unwrap_or(0);
+            if race_id == 0 {
+                continue;
+            }
+            let run_type = row.get("run_type").and_then(|v| v.as_i64()).unwrap_or(0);
+            let start = crate::providers::archive_common::date_only(
+                row.get("start_time_utc")
+                    .or_else(|| row.get("start_time"))
+                    .and_then(|v| v.as_str()),
+            );
+            let entry = by_race.entry(race_id).or_insert_with(|| {
+                json!({
+                    "race_id": race_id,
+                    "name": race_name(&row),
+                    "track": row.get("track_name").cloned().unwrap_or(json!("")),
+                    "date": start.clone(),
+                    "year": year,
+                })
+            });
+            if run_type == 3 {
+                entry["name"] = json!(race_name(&row));
+                if !start.is_empty() {
+                    entry["date"] = json!(start);
+                }
+            } else if entry.get("date").and_then(|v| v.as_str()).unwrap_or("").is_empty()
+                && !start.is_empty()
+            {
+                entry["date"] = json!(start);
+            }
+            if entry.get("track").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+                if let Some(track) = row.get("track_name") {
+                    entry["track"] = track.clone();
+                }
+            }
+        }
+        let mut races: Vec<_> = by_race.into_values().collect();
+        races.sort_by(|a, b| {
+            let da = a.get("date").and_then(|v| v.as_str()).unwrap_or("");
+            let db = b.get("date").and_then(|v| v.as_str()).unwrap_or("");
+            da.cmp(db)
+        });
+        for (idx, row) in races.into_iter().enumerate() {
+            let date = row.get("date").and_then(|v| v.as_str()).unwrap_or("");
+            if !crate::providers::archive_common::finished(date, until) {
+                continue;
+            }
+            let race_id = row
+                .get("race_id")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            out.push(crate::providers::archive_common::archive_race(
+                "nascar-cup",
+                &race_id,
+                year,
+                (idx + 1) as i32,
+                row.get("name").and_then(|v| v.as_str()).unwrap_or("Race"),
+                date,
+                row.get("track").and_then(|v| v.as_str()).unwrap_or(""),
+                "",
+                "USA",
+                json!([{
+                    "session_key": race_id,
+                    "type": "RACE",
+                    "name": "Race",
+                    "date": date,
+                    "time": Value::Null,
+                    "has_replay": false
+                }]),
+            ));
+        }
+    }
+    out.sort_by(|a, b| {
+        let da = a.get("date").and_then(|v| v.as_str()).unwrap_or("");
+        let db = b.get("date").and_then(|v| v.as_str()).unwrap_or("");
+        db.cmp(da)
+    });
+    Value::Array(out)
+}
+
+pub async fn archive_detail(event_key: &str) -> Value {
+    let race_id = event_key.to_string();
+    let races = archive_races("2026-12-31").await;
+    let race = races
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row.get("session_key").and_then(|v| v.as_str()) == Some(event_key))
+        .cloned()
+        .unwrap_or_else(|| {
+            crate::providers::archive_common::archive_race(
+                "nascar-cup",
+                &race_id,
+                0,
+                0,
+                "Race",
+                "",
+                "",
+                "",
+                "USA",
+                json!([]),
+            )
+        });
+    let year = race
+        .get("season")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(year() as i64);
+    let body = get_cached(
+        &format!("{CACHE_PREFIX}:results:{year}:{race_id}"),
+        Duration::from_secs(6 * 3600),
+        &format!("https://cf.nascar.com/cacher/{year}/{SERIES_ID}/{race_id}/raceResults.json"),
+    )
+    .await;
+    let results: Vec<Value> = body
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            let full = row
+                .get("driver_fullname")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let (given, family) = if let Some((g, f)) = full.split_once(' ') {
+                (g.to_string(), f.to_string())
+            } else {
+                (full.clone(), String::new())
+            };
+            json!({
+                "position": row.get("finishing_position").cloned(),
+                "position_text": row.get("finishing_position").map(|v| v.to_string()),
+                "points": row.get("points_earned").cloned(),
+                "grid": row.get("starting_position").cloned(),
+                "laps": row.get("laps_completed").cloned(),
+                "status": row.get("finishing_status").cloned().unwrap_or(json!("Finished")),
+                "time": Value::Null,
+                "driver_id": row.get("driver_id").map(|v| json!(v.to_string())),
+                "tla": family.chars().take(3).collect::<String>().to_uppercase(),
+                "driver_number": row.get("car_number").cloned(),
+                "given_name": given,
+                "family_name": family,
+                "constructor_id": row.get("car_make").and_then(|v| v.as_str()).map(|s| s.to_lowercase()).unwrap_or_default(),
+                "constructor_name": row.get("team_name").or_else(|| row.get("car_make")).cloned().unwrap_or(json!("")),
+                "fastest_lap": Value::Null,
+                "fastest_lap_number": Value::Null,
+            })
+        })
+        .collect();
+    crate::providers::archive_common::archive_detail(
+        race,
+        "Race",
+        results,
+        &format!("nascar:archive:{race_id}"),
+    )
+}
