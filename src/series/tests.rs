@@ -17,10 +17,20 @@ mod tests {
     }
 
     #[test]
-    fn policy_blocks_paused_series() {
+    fn newly_enabled_series_are_active() {
+        for key in ["f2", "f3", "nascar-cup", "indycar"] {
+            let row = series::get(key).unwrap_or_else(|| panic!("{key}"));
+            assert_eq!(row.status, SeriesStatus::Active);
+            assert!(policy::enforce_series(row).is_ok());
+            assert!(policy::enforce_endpoint(row, "events").is_ok());
+            assert!(policy::enforce_endpoint(row, "standings").is_ok());
+        }
         let f2 = series::get("f2").expect("f2");
-        assert_eq!(f2.status, SeriesStatus::Paused);
-        assert!(policy::enforce_series(f2).is_err());
+        assert!(!f2.live_enabled);
+        assert!(policy::enforce_endpoint(f2, "position").is_err());
+        let cup = series::get("nascar-cup").expect("nascar-cup");
+        assert!(cup.live_enabled);
+        assert!(policy::enforce_endpoint(cup, "position").is_ok());
     }
 
     #[test]

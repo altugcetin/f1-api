@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use crate::openf1;
 use crate::policy::{self, is_live_endpoint};
-use crate::providers::{formula_e, motogp, results_facts, wrc};
+use crate::providers::{f2f3, formula_e, indycar, motogp, nascar, results_facts, wrc};
 use crate::routes::stub;
 use crate::series::LegalTier;
 use crate::state::AppState;
@@ -109,6 +109,46 @@ async fn dispatch(
             "events" => formula_e::events().await,
             "standings" => formula_e::standings().await,
             "results" | "sessions" | "entries" | "competitors" => json!([]),
+            _ => json!([]),
+        };
+        return Ok(Json(value));
+    }
+
+    if series.series_key == "f2" || series.series_key == "f3" {
+        let event_key = query.event_key.as_deref();
+        let value = match endpoint {
+            "events" => f2f3::events(&series.series_key).await,
+            "sessions" => f2f3::sessions(&series.series_key).await,
+            "standings" => f2f3::standings(&series.series_key).await,
+            "results" => f2f3::results(&series.series_key, event_key).await,
+            "entries" | "competitors" => f2f3::entries(&series.series_key).await,
+            _ => json!([]),
+        };
+        return Ok(Json(value));
+    }
+
+    if series.series_key == "nascar-cup" {
+        let event_key = query.event_key.as_deref();
+        let value = match endpoint {
+            "events" => nascar::events().await,
+            "sessions" => nascar::sessions().await,
+            "standings" => nascar::standings().await,
+            "results" => nascar::results(event_key).await,
+            "position" => nascar::position().await,
+            "entries" | "competitors" => nascar::entries().await,
+            _ => json!([]),
+        };
+        return Ok(Json(value));
+    }
+
+    if series.series_key == "indycar" {
+        let event_key = query.event_key.as_deref();
+        let value = match endpoint {
+            "events" => indycar::events().await,
+            "sessions" => indycar::sessions().await,
+            "standings" => indycar::standings().await,
+            "results" => indycar::results(event_key).await,
+            "entries" | "competitors" => indycar::entries().await,
             _ => json!([]),
         };
         return Ok(Json(value));
